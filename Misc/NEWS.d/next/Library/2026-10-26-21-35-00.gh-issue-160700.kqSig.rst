@@ -1,0 +1,2 @@
+Fix :meth:`subprocess.Popen.wait` with a timeout swallowing
+:exc:`InterruptedError` raised by a signal handler on macOS and BSD.

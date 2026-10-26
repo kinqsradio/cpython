@@ -4311,6 +4311,30 @@ class FastWaitTestCase(BaseTestCase):
             self.assertEqual(p.wait(timeout=support.SHORT_TIMEOUT), 0)
         self.assertTrue(m.called)
 
+    @unittest.skipIf(not CAN_USE_KQUEUE, reason="needs kqueue() for proc")
+    def test_kqueue_control_interrupted(self):
+        # gh-160700: EINTR is retried by kqueue.control() itself. An
+        # InterruptedError raised by a signal handler must escape wait().
+        for error in (InterruptedError("signal handler"),
+                      InterruptedError(errno.EINTR, "signal handler")):
+            with self.subTest(errno=error.errno):
+                # Keep the child alive until cleanup, regardless of scheduling.
+                with subprocess.Popen(
+                    [sys.executable, "-c", "import sys; sys.stdin.read()"],
+                    stdin=subprocess.PIPE,
+                ) as p:
+                    try:
+                        kq = mock.Mock()
+                        kq.control.side_effect = error
+                        with mock.patch("select.kqueue", return_value=kq):
+                            with self.assertRaises(InterruptedError) as cm:
+                                p.wait(timeout=0)
+                        self.assertIs(cm.exception, error)
+                        kq.close.assert_called_once_with()
+                        self.assertIsNone(p.returncode)
+                    finally:
+                        p.kill()
+
     def assert_wait_race_condition(self, patch_target, real_func):
         # Call pidfd_open() / kqueue(), then terminate the process.
         # Make sure that the wait call (poll() / kqueue.control())
